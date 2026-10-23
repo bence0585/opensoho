@@ -1,8 +1,9 @@
 #!/bin/sh
 # OpenWISP hotplug script, deployed to /etc/hotplug.d/openwisp/opensoho-poe on the target.
-# On end-of-cycle, collects live telemetry -- PoE status (`ubus call poe info`)
-# and LLDP neighbors (`lldpcli -f json show neighbors`) -- and embeds whichever
-# are available verbatim into a {"type":"OpenSoho","poe":...,"lldp":...} object,
+# On end-of-cycle, collects live telemetry -- PoE status (`ubus call poe info`),
+# LLDP neighbors (`lldpcli -f json show neighbors`) and the bridge forwarding
+# database (/usr/share/opensoho/dump-fdb.uc) -- and embeds whichever are
+# available verbatim into a {"type":"OpenSoho","poe":...,"lldp":...,"fdb":...} object,
 # then atomically writes it into the openwisp-monitoring upload spool so the send
 # agent POSTs it to the controller.
 #
@@ -44,6 +45,15 @@ if command -v lldpcli >/dev/null 2>&1; then
 	lldp=$(lldpcli -f json show neighbors 2>/dev/null)
 	case "$lldp" in
 		'{'*) parts="${parts:+$parts,}\"lldp\":$lldp";;
+	esac
+fi
+
+# Bridge forwarding database: which MAC is learned on which bridge port.
+# Every OpenWrt release OpenSOHO supports ships ucode.
+if [ -f /usr/share/opensoho/dump-fdb.uc ]; then
+	fdb=$(ucode /usr/share/opensoho/dump-fdb.uc 2>/dev/null)
+	case "$fdb" in
+		'['*) parts="${parts:+$parts,}\"fdb\":$fdb";;
 	esac
 fi
 

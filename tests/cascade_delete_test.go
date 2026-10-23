@@ -91,10 +91,13 @@ func TestDeviceDeleteCascades(t *testing.T) {
 	}
 
 	cascaded := []string{
+		"bridge_fdb",
 		"bridges",
 		"clients",
+		"dhcp_leases",
 		"ethernet",
 		"interfaces",
+		"lan_clients",
 		"lldp",
 		"poe",
 		"radio_frequencies",

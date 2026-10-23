@@ -12,7 +12,7 @@ app.opensoho.collectionGroups = [
     },
     {
         name: "Clients",
-        items: ["connected_clients", "disconnected_clients", "clients"],
+        items: ["connected_clients", "disconnected_clients", "clients", "lan_clients"],
     },
     {
         name: "WiFi",
@@ -20,7 +20,7 @@ app.opensoho.collectionGroups = [
     },
     {
         name: "Network",
-        items: ["bridges", "ethernet", "dhcp_reservations", "dhcp_leases", "lldp"],
+        items: ["bridges", "ethernet", "dhcp_reservations", "dhcp_leases", "lldp", "bridge_fdb"],
     },
     {
         name: "VLAN",
@@ -41,6 +41,8 @@ const nameReplacements = {
     "mac_address": "MAC address",
     "dhcp_reservations": "DHCP reservations",
     "dhcp_leases": "DHCP leases",
+    "lan_clients": "LAN clients",
+    "bridge_fdb": "Bridge FDB",
     "ip_address": "IP address",
     "wifi_client_psk": "Wifi client PSK",
     "wifi_ssids": "Wifi SSIDs",
@@ -80,10 +82,12 @@ app.opensoho.formatBytes = function(size) {
  */
 app.opensoho.isCollectionReadOnly = function(name) {
     switch (name?.toLowerCase()) {
+        case "bridge_fdb":
         case "devices":
         case "dhcp_leases":
         case "ethernet":
         case "interfaces":
+        case "lan_clients":
         case "radios":
         case "radio_frequencies":
         case "radio_ht_modes":
@@ -104,11 +108,16 @@ app.opensoho.isCollectionReadOnly = function(name) {
 app.opensoho.isCollectionFieldReadOnly = function(collectionName, fieldName) {
     switch (collectionName?.toLowerCase()) {
         // full read-only
+        case "bridge_fdb":
         case "bridges":
-        case "dhcp_leases":
         case "interfaces":
             return true;
         // partial read-write
+        case "dhcp_leases":
+            // make_static turns the lease into a DHCP reservation
+            return fieldName.toLowerCase() != "make_static";
+        case "lan_clients":
+            return fieldName.toLowerCase() != "alias";
         case "ethernet":
             switch (fieldName.toLowerCase()) {
                 case "config":
@@ -192,6 +201,10 @@ app.opensoho.getCollectionIcon = function(name) {
             return "ri-exchange-box-line";
         case "clients":
             return "ri-device-line";
+        case "lan_clients":
+            return "ri-computer-line";
+        case "bridge_fdb":
+            return "ri-route-line";
         case "dhcp_reservations":
             return "ri-door-lock-box-line";
         case "vlan":

@@ -1520,6 +1520,20 @@ func TestValidateSetting(t *testing.T) {
 
 	s.Set("value", "XX")
 	assert.Error(t, validateSetting(s))
+
+	s.Set("name", "usteer_min_snr")
+	s.Set("value", "-80")
+	assert.Nil(t, validateSetting(s))
+	s.Set("value", "")
+	assert.Nil(t, validateSetting(s))
+	s.Set("value", "-80dB")
+	assert.Error(t, validateSetting(s))
+
+	s.Set("name", "usteer_assoc_steering")
+	s.Set("value", "true")
+	assert.Nil(t, validateSetting(s))
+	s.Set("value", "1")
+	assert.Error(t, validateSetting(s))
 }
 
 func TestValidateVlan(t *testing.T) {
@@ -5372,12 +5386,46 @@ config usteer 'usteer'
         option ipv6 '0'
         option local_mode '0'
         option syslog '1'
-        option roam_trigger '-70'
-        option min_signal '-78'
-        option roam_delta '10'
-        option probe_steering '1'
-        option deny_assoc '1'
-        option band_steering '1'
+        option roam_scan_snr '-70'
+        option roam_trigger_snr '-72'
+        option signal_diff_threshold '8'
+        option band_steering_threshold '5'
+        option band_steering_min_snr '-60'
+
+        list ssid_list 'bss-enabled'
+`, generateUsteerConfig(device, app))
+
+	// The settings override the defaults and enable the optional options.
+	// Invalid values (which validateSetting rejects) are skipped.
+	settingscollection := setupSettingsCollection(t, app)
+	for name, value := range map[string]string{
+		"usteer_roam_trigger_snr": "-75",
+		"usteer_min_snr":          "-80",
+		"usteer_assoc_steering":   "true",
+		"usteer_min_connect_snr":  "abc",
+		"country":                 "BE",
+	} {
+		setting := core.NewRecord(settingscollection)
+		setting.Set("name", name)
+		setting.Set("value", value)
+		assert.Nil(t, app.Save(setting))
+	}
+
+	assert.Equal(t, `
+config usteer 'usteer'
+        option enabled '1'
+        option network 'lan'
+        option debug_level '2'
+        option ipv6 '0'
+        option local_mode '0'
+        option syslog '1'
+        option roam_scan_snr '-70'
+        option roam_trigger_snr '-75'
+        option signal_diff_threshold '8'
+        option band_steering_threshold '5'
+        option band_steering_min_snr '-60'
+        option min_snr '-80'
+        option assoc_steering '1'
 
         list ssid_list 'bss-enabled'
 `, generateUsteerConfig(device, app))
@@ -7873,7 +7921,7 @@ func TestDhcpClientUpdate(t *testing.T) {
 	}
 	expiryTime := types.DateTime{}
 	setupDhcpLeaseCollection(t, app)
-	storeDHCPLeases(app, leaseslist, expiryTime)
+	storeDHCPLeases(app, nil, leaseslist, expiryTime)
 	records, err := app.FindAllRecords("dhcp_leases")
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 2, len(records))
@@ -7912,7 +7960,7 @@ func TestDhcpClientUpdate(t *testing.T) {
 			Expiry:     56780,
 		},
 	}
-	storeDHCPLeases(app, leaseslist, expiryTime)
+	storeDHCPLeases(app, nil, leaseslist, expiryTime)
 	records, err = app.FindAllRecords("dhcp_leases")
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 3, len(records))
@@ -7935,7 +7983,7 @@ func TestDhcpClientUpdate(t *testing.T) {
 	leaseslist = []DHCPLease{}
 	expiryTime, err = types.ParseDateTime("1970-01-01 15:46:20.000Z")
 	assert.Equal(t, nil, err)
-	storeDHCPLeases(app, leaseslist, expiryTime)
+	storeDHCPLeases(app, nil, leaseslist, expiryTime)
 	records, err = app.FindAllRecords("dhcp_leases")
 	assert.Equal(t, 2, len(records))
 }

@@ -87,6 +87,12 @@ var dumpRadiosHotplugShim string
 //go:embed scripts/dump-poe.sh
 var dumpPoeScript string
 
+// Bridge forwarding database dump, pushed to /usr/share/opensoho/dump-fdb.uc
+// and run by dumpPoeScript.
+//
+//go:embed scripts/dump-fdb.uc
+var dumpFdbScript string
+
 func copyEmbedDirToDisk(embedFS fs.FS, targetDir string) error {
 	return fs.WalkDir(embedFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -921,13 +927,15 @@ type OpenSohoRadio struct {
 
 // OpenSohoData is the decoded OpenSoho payload. The radios dump
 // (scripts/dump-radios.uc) carries "radios"; the PoE dump
-// (scripts/dump-poe.sh) carries "poe". Both share type "OpenSoho", so one
-// struct decodes either: the absent key simply stays nil/empty.
+// (scripts/dump-poe.sh) carries "poe", "lldp" and "fdb". Both share type
+// "OpenSoho", so one struct decodes either: the absent key simply stays
+// nil/empty.
 type OpenSohoData struct {
 	Type   string          `json:"type"`
 	Radios []OpenSohoRadio `json:"radios"`
 	Poe    *poe.Info       `json:"poe"`
 	Lldp   *lldp.Info      `json:"lldp"`
+	Fdb    []FdbBridge     `json:"fdb"`
 }
 
 func radiosFromOpenSoho(app core.App, device *core.Record, data OpenSohoData) map[int]Radio {
@@ -1111,6 +1119,16 @@ func handleOpenSohoMonitoring(app core.App, device *core.Record, data OpenSohoDa
 	if data.Lldp != nil {
 		if err := lldp.Sync(app, device, *data.Lldp); err != nil {
 			app.Logger().Error("Failed to sync lldp neighbors",
+				"device", device.GetString("id"), "error", err)
+		}
+	}
+
+	if data.Fdb != nil {
+		if err := syncBridgeFdb(app, device, data.Fdb); err != nil {
+			app.Logger().Error("Failed to sync bridge fdb",
+				"device", device.GetString("id"), "error", err)
+		} else if err := locateLanClients(app, time.Now()); err != nil {
+			app.Logger().Error("Failed to locate lan clients",
 				"device", device.GetString("id"), "error", err)
 		}
 	}
@@ -2601,18 +2619,70 @@ config usteer 'usteer'
         option ipv6 '0'
         option local_mode '0'
         option syslog '1'
-        option roam_trigger '-70'
-        option min_signal '-78'
-        option roam_delta '10'
-        option probe_steering '1'
-        option deny_assoc '1'
-        option band_steering '1'
-
 `
+	output += generateUsteerSteeringOptions(app)
+	output += "\n"
 	for _, name := range ssids {
 		output += fmt.Sprintf("        list ssid_list '%s'\n", name)
 	}
 	return output
+}
+
+// usteerSettings are the usteer options that can be tuned with a settings
+// record named "usteer_<option>". The defaults roam to an AP that is 8dB
+// better once the signal drops below -72dBm, and steer clients with a good
+// 2.4GHz signal to 5GHz. Options without a default are left to usteer
+// (min_snr 0 disables the low signal kick).
+var usteerSettings = []struct {
+	option       string
+	defaultValue string
+}{
+	{"roam_scan_snr", "-70"},
+	{"roam_trigger_snr", "-72"},
+	{"signal_diff_threshold", "8"},
+	{"band_steering_threshold", "5"},
+	{"band_steering_min_snr", "-60"},
+	{"min_snr", ""},
+	{"min_snr_kick_delay", ""},
+	{"min_connect_snr", ""},
+	{"assoc_steering", ""},
+}
+
+func isUsteerBoolOption(option string) bool {
+	return option == "assoc_steering"
+}
+
+func generateUsteerSteeringOptions(app core.App) string {
+	values := map[string]string{}
+	if settings, err := app.FindAllRecords("settings"); err == nil {
+		for _, setting := range settings {
+			if option, ok := strings.CutPrefix(setting.GetString("name"), "usteer_"); ok {
+				values[option] = strings.TrimSpace(setting.GetString("value"))
+			}
+		}
+	}
+
+	var output strings.Builder
+	for _, s := range usteerSettings {
+		value, ok := values[s.option]
+		if !ok || value == "" {
+			value = s.defaultValue
+		}
+		if value == "" {
+			continue
+		}
+		if isUsteerBoolOption(s.option) {
+			if value == "true" || value == "1" {
+				value = "1"
+			} else {
+				value = "0"
+			}
+		} else if _, err := strconv.Atoi(value); err != nil {
+			continue
+		}
+		fmt.Fprintf(&output, "        option %s '%s'\n", s.option, value)
+	}
+	return output.String()
 }
 
 func generateDeviceConfig(app core.App, record *core.Record) ([]byte, string, error) {
@@ -2656,8 +2726,8 @@ func generateDeviceConfig(app core.App, record *core.Record) ([]byte, string, er
 
 		// HostApdPskConfig needs to be called before the generateWifiConfigs
 		//wificonfigsstructs /*deviceHasPskConfig*/, _ := generateHostApdPskConfigs(app, wifirecords, &configfiles)
+		// Not logged: the wifi config contains the keys.
 		wificonfigs, has_vlan_config := generateWifiConfigs(wificonfigstructs, numradios, app, record)
-		fmt.Println(wificonfigs)
 		if len(wificonfigs) > 0 {
 			configfiles["etc/config/wireless"] = wificonfigs
 		}
@@ -2685,6 +2755,7 @@ func generateDeviceConfig(app core.App, record *core.Record) ([]byte, string, er
 		configfiles["usr/share/opensoho/dump-radios.uc"] = dumpRadiosScript
 		configfiles["usr/share/opensoho/dump-radios-caps.uc"] = dumpRadiosCapsScript
 		configfiles["etc/hotplug.d/openwisp/opensoho-poe"] = dumpPoeScript
+		configfiles["usr/share/opensoho/dump-fdb.uc"] = dumpFdbScript
 	}
 	{
 		sshkeyconfigs := generateSshKeyConfig(app)
@@ -3048,6 +3119,11 @@ func handleMonitoring(e *core.RequestEvent, app core.App, device *core.Record, c
 					cliententry.Set("tx_bytes", client.Bytes.Tx)
 					cliententry.Set("rx_bytes", client.Bytes.Rx)
 					cliententry.Set("device", device.GetString("id"))
+					ip, hostname := lookupHostInfo(app, client.MAC)
+					if ip != "" {
+						cliententry.Set("ip_address", ip)
+					}
+					cliententry.Set("hostname", hostname)
 					err = app.Save(cliententry)
 					if err != nil {
 						return e.InternalServerError("Could not store entry", err), report
@@ -3072,14 +3148,17 @@ func handleMonitoring(e *core.RequestEvent, app core.App, device *core.Record, c
 	// referenced go away.
 	pruneEthernetPorts(app, device, wiredPorts)
 
-	storeDHCPLeases(app, payload.DHCPLeases, types.NowDateTime())
+	storeDHCPLeases(app, device, payload.DHCPLeases, types.NowDateTime())
+	applyNeighbors(app, payload.Neighbors)
 
 	//current := e.Request.URL.Query().Get("current")
 	fmt.Println(payload.Type, "@", time)
 	return e.Blob(200, "text/plain", []byte("")), report
 }
 
-func storeDHCPLeases(app core.App, leaseslist []DHCPLease, expirytime types.DateTime) {
+// storeDHCPLeases stores the leases handed out by the DHCP server device and
+// links each to the static reservation of its MAC address, if any.
+func storeDHCPLeases(app core.App, device *core.Record, leaseslist []DHCPLease, expirytime types.DateTime) {
 	// TODO needs to run in a transaction?
 	collection, _ := app.FindCollectionByNameOrId("dhcp_leases")
 	//var leasesmap map[string]DHCPLease
@@ -3094,6 +3173,14 @@ func storeDHCPLeases(app core.App, leaseslist []DHCPLease, expirytime types.Date
 			record.Set("hostname", nil)
 		}
 		record.Set("expiry", lease.Expiry)
+		if device != nil {
+			record.Set("device", device.Id)
+		}
+		if reservation := findByMAC(app, "dhcp_reservations", lease.MACAddress); reservation != nil {
+			record.Set("reservation", reservation.Id)
+		} else {
+			record.Set("reservation", nil)
+		}
 		err := app.Save(record)
 		if err != nil {
 			fmt.Println("Could not store DHCP LEASE", err)
@@ -3644,6 +3731,26 @@ func main() {
 		return e.Next()
 	})
 
+	// "make static" on a lease is an action, not stored state: it creates the
+	// reservation and is reset again.
+	app.OnRecordUpdateRequest("dhcp_leases").BindFunc(func(e *core.RecordRequestEvent) error {
+		if e.Record.GetBool("make_static") {
+			if err := makeLeaseStatic(e.App, e.Record); err != nil {
+				return apis.NewBadRequestError("Failed to make the lease static: "+err.Error(), err)
+			}
+			e.Record.Set("make_static", false)
+		}
+		return e.Next()
+	})
+
+	app.OnRecordCreateRequest("settings").BindFunc(func(e *core.RecordRequestEvent) error {
+		err := validateSetting(e.Record)
+		if err != nil {
+			return err
+		}
+		return e.Next()
+	})
+
 	app.OnRecordUpdateRequest("settings").BindFunc(func(e *core.RecordRequestEvent) error {
 		err := validateSetting(e.Record)
 		if err != nil {
@@ -3835,6 +3942,16 @@ func validateSetting(record *core.Record) error {
 	case "mqtt_broker":
 		if value != "" && !strings.HasPrefix(value, "tcp://") && !strings.HasPrefix(value, "ssl://") && !strings.HasPrefix(value, "ws://") && !strings.HasPrefix(value, "wss://") {
 			errs["value"] = validation.NewError("validation_invalid_value", "Must be a broker URL, e.g. 'tcp://host:1883', 'ssl://host:8883', 'ws://host:8083' or 'wss://host:8084'.")
+		}
+	default:
+		if option, ok := strings.CutPrefix(name, "usteer_"); ok && value != "" {
+			if isUsteerBoolOption(option) {
+				if value != "true" && value != "false" {
+					errs["value"] = validation.NewError("validation_invalid_value", "Value must be 'true' or 'false'.")
+				}
+			} else if _, err := strconv.Atoi(value); err != nil {
+				errs["value"] = validation.NewError("validation_invalid_value", "Value must be a whole number, e.g. '-72'. Leave empty for the default.")
+			}
 		}
 	}
 	if len(errs) > 0 {
@@ -4489,7 +4606,7 @@ func findClientPsksForWifi(app core.App, wifi *core.Record) []*core.Record {
 	records, err := app.FindAllRecords("wifi_client_psk",
 		dbx.NewExp("wifi = {:wifi}", dbx.Params{"wifi": wifi.Id}))
 	if err != nil {
-		fmt.Println("Failed to fetch client psks for wifi", wifi)
+		fmt.Println("Failed to fetch client psks for wifi", wifi.Id, err)
 		return nil
 	}
 	return records
