@@ -2,8 +2,9 @@
 # OpenWISP hotplug script, deployed to /etc/hotplug.d/openwisp/opensoho-poe on the target.
 # On end-of-cycle, collects live telemetry -- PoE status (`ubus call poe info`),
 # LLDP neighbors (`lldpcli -f json show neighbors`) and the bridge forwarding
-# database (/usr/share/opensoho/dump-fdb.uc) -- and embeds whichever are
-# available verbatim into a {"type":"OpenSoho","poe":...,"lldp":...,"fdb":...} object,
+# database (/usr/share/opensoho/dump-fdb.uc) and the per host traffic counters
+# of nlbwmon (`nlbw -c json -g mac`) -- and embeds whichever are available
+# verbatim into a {"type":"OpenSoho","poe":...,"lldp":...,"fdb":...,"nlbw":...} object,
 # then atomically writes it into the openwisp-monitoring upload spool so the send
 # agent POSTs it to the controller.
 #
@@ -54,6 +55,14 @@ if [ -f /usr/share/opensoho/dump-fdb.uc ]; then
 	fdb=$(ucode /usr/share/opensoho/dump-fdb.uc 2>/dev/null)
 	case "$fdb" in
 		'['*) parts="${parts:+$parts,}\"fdb\":$fdb";;
+	esac
+fi
+
+# Per host traffic counters, on the gateway (where nlbwmon runs).
+if command -v nlbw >/dev/null 2>&1; then
+	nlbw=$(nlbw -c json -g mac 2>/dev/null)
+	case "$nlbw" in
+		'{'*) parts="${parts:+$parts,}\"nlbw\":$nlbw";;
 	esac
 fi
 

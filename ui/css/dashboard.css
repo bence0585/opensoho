@@ -476,4 +476,71 @@
     .net-neighbour + .net-neighbour {
         margin-top: 2px;
     }
+
+    /* traffic page (ui/dashboard/traffic.js) */
+    .traffic-wan {
+        position: relative;
+    }
+    .traffic-now {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 6px 24px;
+        margin-bottom: 10px;
+    }
+    .traffic-big {
+        font-size: 28px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+    .traffic-chart {
+        position: relative;
+        width: 100%;
+        height: 260px;
+    }
+    .traffic-down {
+        color: #4e79a7;
+    }
+    .traffic-up {
+        color: #f28e2b;
+    }
+    .traffic-rate {
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .traffic-table td {
+        vertical-align: middle;
+    }
+    .traffic-row {
+        cursor: pointer;
+        &:hover td {
+            background: var(--surfaceAlt1Color);
+        }
+    }
+    .traffic-name {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+    }
+    .traffic-sub {
+        font-size: 11px;
+    }
+    .traffic-spark {
+        display: block;
+    }
+    .traffic-bar {
+        display: block;
+        width: 80px;
+        height: 4px;
+        margin-top: 3px;
+        border-radius: 2px;
+        background: var(--surfaceAlt2Color);
+        overflow: hidden;
+        span {
+            display: block;
+            height: 100%;
+            background: currentColor;
+        }
+    }
 }

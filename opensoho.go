@@ -927,7 +927,7 @@ type OpenSohoRadio struct {
 
 // OpenSohoData is the decoded OpenSoho payload. The radios dump
 // (scripts/dump-radios.uc) carries "radios"; the PoE dump
-// (scripts/dump-poe.sh) carries "poe", "lldp" and "fdb". Both share type
+// (scripts/dump-poe.sh) carries "poe", "lldp", "fdb" and "nlbw". Both share type
 // "OpenSoho", so one struct decodes either: the absent key simply stays
 // nil/empty.
 type OpenSohoData struct {
@@ -936,6 +936,7 @@ type OpenSohoData struct {
 	Poe    *poe.Info       `json:"poe"`
 	Lldp   *lldp.Info      `json:"lldp"`
 	Fdb    []FdbBridge     `json:"fdb"`
+	Nlbw   *NlbwData       `json:"nlbw"`
 }
 
 func radiosFromOpenSoho(app core.App, device *core.Record, data OpenSohoData) map[int]Radio {
@@ -1121,6 +1122,12 @@ func handleOpenSohoMonitoring(app core.App, device *core.Record, data OpenSohoDa
 			app.Logger().Error("Failed to sync lldp neighbors",
 				"device", device.GetString("id"), "error", err)
 		}
+	}
+
+	// Only live counters are metered: the agent uploads the reports it
+	// couldn't send before as well, which are older than the last one.
+	if data.Nlbw != nil && current {
+		recordNlbwTraffic(traffic, device, *data.Nlbw, time.Now())
 	}
 
 	if data.Fdb != nil {
@@ -3025,7 +3032,7 @@ func updateInterface(app core.App, iface Interface, deviceId string, interfaceCo
 
 func handleMonitoring(e *core.RequestEvent, app core.App, device *core.Record, collection *core.Collection) (error, radioReport) {
 	e.Response.Header().Set("X-Openwisp-Controller", "true")
-	time := e.Request.URL.Query().Get("time")
+	reportTime := e.Request.URL.Query().Get("time")
 	// The openwisp agent marks the up-to-date info with current=true
 	// Only live data is published to Home Assistant does not support backfill over MQTT
 	current := e.Request.URL.Query().Get("current") == "true"
@@ -3074,6 +3081,9 @@ func handleMonitoring(e *core.RequestEvent, app core.App, device *core.Record, c
 	}
 	radios = make(map[int]Radio)
 	report.radios = radios
+	if current {
+		recordMonitoringTraffic(traffic, device, payload, time.Now())
+	}
 	interfacecollection, _ := app.FindCollectionByNameOrId("interfaces")
 	wificollection, _ := app.FindCollectionByNameOrId("wifi_ssids")
 
@@ -3152,7 +3162,7 @@ func handleMonitoring(e *core.RequestEvent, app core.App, device *core.Record, c
 	applyNeighbors(app, payload.Neighbors)
 
 	//current := e.Request.URL.Query().Get("current")
-	fmt.Println(payload.Type, "@", time)
+	fmt.Println(payload.Type, "@", reportTime)
 	return e.Blob(200, "text/plain", []byte("")), report
 }
 
@@ -3640,6 +3650,8 @@ func main() {
 			e.Router.GET("/api/v1/network-overview", apiNetworkOverview).Bind(apis.RequireAuth())
 			e.Router.GET("/api/v1/wifi-versions", apiWifiVersions).Bind(apis.RequireAuth())
 			e.Router.GET("/api/v1/client-signal-quality", apiClientSignalQuality).Bind(apis.RequireAuth())
+			e.Router.GET("/api/v1/traffic/live", apiTrafficLive).Bind(apis.RequireAuth())
+			e.Router.GET("/api/v1/traffic/history", apiTrafficHistory).Bind(apis.RequireAuth())
 
 			return e.Next()
 		},
@@ -3773,6 +3785,17 @@ func main() {
 	}
 	app.OnRecordAfterUpdateSuccess("settings").BindFunc(reconnectMQTT)
 	app.OnRecordAfterCreateSuccess("settings").BindFunc(reconnectMQTT)
+
+	app.Cron().MustAdd("trafficFlush", "* * * * *", func() {
+		if err := flushTraffic(app, traffic, time.Now()); err != nil {
+			app.Logger().Error("Failed to store the traffic", "error", err)
+		}
+	})
+	app.Cron().MustAdd("trafficRollup", "5 * * * *", func() {
+		if err := rollupTraffic(app, time.Now()); err != nil {
+			app.Logger().Error("Failed to roll up the traffic", "error", err)
+		}
+	})
 
 	app.Cron().MustAdd("updateDeviceHealth", "* * * * *", func() {
 		fmt.Println("Update Device health")

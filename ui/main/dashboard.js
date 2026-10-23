@@ -12,3 +12,14 @@ app.routes.superuserOnly("#/dashboard", async (route) => {
     const { pageDashboard } = await import(app.opensoho.baseURL + "dashboard/page.js");
     return pageDashboard(route);
 });
+
+app.store.headerLinks.splice(1, 0, {
+    href: "#/traffic",
+    icon: "ri-line-chart-line",
+    label: "Traffic",
+});
+
+app.routes.superuserOnly("#/traffic", async (route) => {
+    const { pageTraffic } = await import(app.opensoho.baseURL + "dashboard/traffic.js");
+    return pageTraffic(route);
+});
