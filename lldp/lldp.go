@@ -115,21 +115,36 @@ func chassisInfo(raw json.RawMessage) (name, mac string) {
 // chassisMac pulls the MAC address out of a chassis's `id` field. Returns "" when
 // the id is absent or advertises a non-MAC identifier type.
 func chassisMac(fields map[string]json.RawMessage) string {
-	raw, ok := fields["id"]
-	if !ok {
+	idType, value := lldpID(fields["id"])
+	if idType != "mac" {
 		return ""
+	}
+	return value
+}
+
+// lldpID decodes an `id` field ({"type":"mac","value":"aa:bb:..."}) of a
+// chassis or port.
+func lldpID(raw json.RawMessage) (idType, value string) {
+	if len(raw) == 0 {
+		return "", ""
 	}
 	var id struct {
 		Type  string `json:"type"`
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(raw, &id); err != nil {
-		return ""
+		return "", ""
 	}
-	if id.Type != "mac" {
-		return ""
+	return id.Type, id.Value
+}
+
+// unwrappedChassisID returns the `id` of a chassis that advertised no SysName.
+func unwrappedChassisID(raw json.RawMessage) (idType, value string) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return "", ""
 	}
-	return id.Value
+	return lldpID(m["id"])
 }
 
 // UnmarshalJSON decodes the verbatim lldpcli output
@@ -151,11 +166,28 @@ func (i *Info) UnmarshalJSON(data []byte) error {
 	for _, iface := range ifaces {
 		var body struct {
 			Chassis json.RawMessage `json:"chassis"`
+			Port    struct {
+				ID json.RawMessage `json:"id"`
+			} `json:"port"`
 		}
 		if err := json.Unmarshal(iface.raw, &body); err != nil {
 			return err
 		}
 		name, mac := chassisInfo(body.Chassis)
+		if mac == "" {
+			// Hosts (e.g. the LLDP agent of Windows network drivers) identify
+			// their chassis by a local name and their port by its MAC.
+			if idType, value := unwrappedChassisID(body.Chassis); name == "" && idType == "local" {
+				name = value
+			}
+			if idType, value := lldpID(body.Port.ID); idType == "mac" {
+				mac = value
+			}
+		}
+		if mac == "" {
+			// without an address the neighbour can't be stored
+			continue
+		}
 		i.Neighbors = append(i.Neighbors, Neighbor{
 			Port: iface.key,
 			Name: name,

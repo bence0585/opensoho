@@ -1,4 +1,5 @@
 import { loadChartJs, loader, loading, PALETTE } from "./charts.js";
+import { trafficMap } from "./trafficmap.js";
 
 // The traffic page: the live rates of the internet connection, the hosts and
 // the wired ports, and their history (see /api/v1/traffic/live and
@@ -8,6 +9,7 @@ const LIVE_INTERVAL = 15000;
 const HISTORY_INTERVAL = 60000;
 const RANGE_STORAGE_KEY = "traffic_range";
 const SHOW_ALL_STORAGE_KEY = "traffic_show_all";
+const SHOW_IDLE_STORAGE_KEY = "traffic_map_show_idle";
 const TOP_HOSTS = 15;
 
 const DOWN_COLOR = PALETTE[0];
@@ -221,6 +223,8 @@ export async function pageTraffic() {
     const portsTable = t.div();
     const selectedTitle = t.span();
     const selectedChart = trafficLineChart();
+    const map = trafficMap((key, title, swap) => select(key, title, swap), formatBps);
+    map.setShowIdle(loadSetting(SHOW_IDLE_STORAGE_KEY, "0") == "1");
 
     function select(key, title, swap) {
         state.selected = { key, title, swap };
@@ -334,10 +338,15 @@ export async function pageTraffic() {
 
     async function loadLive() {
         await loading(state, async () => {
-            live = await app.pb.send("/api/v1/traffic/live", { method: "GET", requestKey: "traffic_live" });
+            const [res, topology] = await Promise.all([
+                app.pb.send("/api/v1/traffic/live", { method: "GET", requestKey: "traffic_live" }),
+                app.pb.send("/api/v1/traffic/topology", { method: "GET", requestKey: "traffic_topology" }),
+            ]);
+            live = res;
             renderWan();
             renderHosts();
             renderPorts();
+            map.update(topology.nodes);
         });
     }
 
@@ -420,6 +429,25 @@ export async function pageTraffic() {
         t.label({ htmlFor: showAllId }, "Show all hosts"),
     );
 
+    const showIdleId = "traffic_show_idle_" + app.utils.randomString();
+    const showIdleInput = t.input({
+        type: "checkbox",
+        className: "switch sm",
+        id: showIdleId,
+        checked: loadSetting(SHOW_IDLE_STORAGE_KEY, "0") == "1",
+        onchange: (e) => map.setShowIdle(e.target.checked),
+    });
+    // the "+N idle" node of the map expands them too
+    map.el.addEventListener("showidle", (e) => {
+        showIdleInput.checked = e.detail;
+        saveSetting(SHOW_IDLE_STORAGE_KEY, e.detail ? "1" : "0");
+    });
+    const showIdleToggle = t.div(
+        { className: "field" },
+        showIdleInput,
+        t.label({ htmlFor: showIdleId }, "Show idle hosts"),
+    );
+
     function card(title, body, headerExtra = null) {
         return t.div(
             { className: "dashboard-card wide" },
@@ -483,6 +511,7 @@ export async function pageTraffic() {
                     t.div({ className: "traffic-chart" }, wanChart),
                 )),
                 selectedCard,
+                card("Map", map.el, showIdleToggle),
                 card("Hosts", hostsTable, showAllToggle),
                 card("Ports", portsTable),
             ),

@@ -537,9 +537,15 @@ func liveTrafficOverview(app core.App, rates map[string]TrafficRate, now time.Ti
 		}
 	}
 	for _, c := range lanClients {
+		portKey := portTrafficKey(c.GetString("device"), c.GetString("port"))
+		_, portRated := rates[portKey]
 		h, ok := hosts[c.GetString("mac_address")]
 		if !ok {
-			continue
+			// a host without internet traffic is still known by its own port
+			if !portRated || c.GetBool("behind_switch") || hostsPerPort[portKey] != 1 {
+				continue
+			}
+			h = host(c.GetString("mac_address"))
 		}
 		h.Wired = true
 		h.Device = deviceNames[c.GetString("device")]
@@ -548,7 +554,6 @@ func liveTrafficOverview(app core.App, rates map[string]TrafficRate, now time.Ti
 			h.Where += " (switch)"
 		}
 		h.Name = c.GetString("alias")
-		portKey := portTrafficKey(c.GetString("device"), c.GetString("port"))
 		if rate, ok := rates[portKey]; ok && h.Key == "" && !c.GetBool("behind_switch") && hostsPerPort[portKey] == 1 {
 			// the router transmits what the host downloads
 			h.Key = portKey

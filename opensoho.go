@@ -3652,6 +3652,7 @@ func main() {
 			e.Router.GET("/api/v1/client-signal-quality", apiClientSignalQuality).Bind(apis.RequireAuth())
 			e.Router.GET("/api/v1/traffic/live", apiTrafficLive).Bind(apis.RequireAuth())
 			e.Router.GET("/api/v1/traffic/history", apiTrafficHistory).Bind(apis.RequireAuth())
+			e.Router.GET("/api/v1/traffic/topology", apiTrafficTopology).Bind(apis.RequireAuth())
 
 			return e.Next()
 		},

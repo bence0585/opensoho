@@ -543,4 +543,119 @@
             background: currentColor;
         }
     }
+
+    /* traffic map (ui/dashboard/trafficmap.js) */
+    .traffic-map {
+        overflow: auto;
+        max-height: 80vh;
+    }
+    .traffic-map-canvas {
+        position: relative;
+    }
+    .traffic-map-links {
+        position: absolute;
+        inset: 0;
+        overflow: visible;
+    }
+    .traffic-link {
+        fill: none;
+        stroke: #4e79a7;
+        stroke-opacity: 0.55;
+        stroke-linecap: round;
+        &.approx {
+            stroke-dasharray: 6 5;
+        }
+        &.idle {
+            stroke: var(--surfaceTxtHintColor);
+            stroke-opacity: 0.35;
+        }
+    }
+    .traffic-flow {
+        fill: none;
+        stroke: #fff;
+        stroke-opacity: 0.85;
+        stroke-dasharray: 2 14;
+        stroke-linecap: round;
+        animation: traffic-flow linear infinite;
+    }
+    @keyframes traffic-flow {
+        to {
+            stroke-dashoffset: -32;
+        }
+    }
+    .traffic-map-node {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border: 1px solid var(--surfaceAlt3Color);
+        border-radius: var(--borderRadius);
+        background: var(--surfaceColor);
+        overflow: hidden;
+        &.clickable {
+            cursor: pointer;
+            &:hover {
+                border-color: #4e79a7;
+            }
+        }
+        &.type-internet,
+        &.type-router {
+            font-weight: 600;
+            border-color: #4e79a7;
+        }
+        &.type-switch {
+            border-style: dashed;
+        }
+        &.type-idle {
+            color: var(--surfaceTxtHintColor);
+            border-style: dotted;
+        }
+        i {
+            flex-shrink: 0;
+            font-size: 15px;
+        }
+    }
+    .traffic-map-text {
+        flex: 1;
+        min-width: 0;
+        line-height: 1.15;
+    }
+    .traffic-map-name,
+    .traffic-map-sub {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .traffic-map-name {
+        font-size: 12px;
+    }
+    .traffic-map-sub {
+        font-size: 10px;
+        font-weight: 400;
+        color: var(--surfaceTxtHintColor);
+    }
+    .traffic-map-port {
+        position: absolute;
+        width: 70px;
+        text-align: right;
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--surfaceTxtHintColor);
+        pointer-events: none;
+    }
+    .traffic-map-rate {
+        flex-shrink: 0;
+        font-size: 10px;
+        font-weight: 400;
+        line-height: 1.15;
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        &.idle {
+            opacity: 0.5;
+        }
+    }
 }

@@ -100,3 +100,34 @@ func TestPointerNilWhenAbsent(t *testing.T) {
 	assert.Nil(t, json.Unmarshal([]byte(`{"poe":{}}`), &wrapper))
 	assert.Nil(t, wrapper.Lldp)
 }
+
+// Hosts like the LLDP agent of Windows network drivers identify their chassis
+// by a local name instead of a MAC; the MAC is then the port id. A neighbour
+// without any MAC can't be stored (the sync would fail on it) and is skipped.
+func TestUnmarshalHostNeighbors(t *testing.T) {
+	payload := `{"lldp":{"interface":[
+		{"lan1":{"via":"LLDP","chassis":{"id":{"type":"local","value":"DESKTOP-PC"}},
+		         "port":{"id":{"type":"mac","value":"02:00:00:00:00:01"},"ttl":"3601"}}},
+		{"lan1":{"via":"LLDP","chassis":{"router-b":{"id":{"type":"mac","value":"02:00:00:00:00:02"}}},
+		         "port":{"id":{"type":"mac","value":"02:00:00:00:00:03"}}}},
+		{"lan2":{"via":"LLDP","chassis":{"id":{"type":"local","value":"NO-MAC"}},
+		         "port":{"id":{"type":"ifname","value":"eth0"}}}}
+	]}}`
+	var info Info
+	if err := json.Unmarshal([]byte(payload), &info); err != nil {
+		t.Fatal(err)
+	}
+	got := info.Normalized()
+	want := []Neighbor{
+		{Port: "lan1", Name: "DESKTOP-PC", Mac: "02:00:00:00:00:01"},
+		{Port: "lan1", Name: "router-b", Mac: "02:00:00:00:00:02"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("neighbour %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
