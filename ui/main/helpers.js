@@ -12,7 +12,7 @@ app.opensoho.collectionGroups = [
     },
     {
         name: "Clients",
-        items: ["connected_clients", "disconnected_clients", "clients", "lan_clients"],
+        items: ["all_clients", "connected_clients", "disconnected_clients", "clients", "lan_clients"],
     },
     {
         name: "WiFi",
@@ -233,6 +233,8 @@ app.opensoho.getCollectionIcon = function(name) {
         case "wifi_aps":
         case "devices":
             return "ri-router-line";
+        case "all_clients":
+            return "ri-group-line";
         case "connected_clients":
             return "ri-wifi-line";
         case "disconnected_clients":

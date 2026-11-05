@@ -181,6 +181,10 @@ Verify whether the device health is `healthy`.
 
 This view shows all wifi clients that are still connected within the previous 30 seconds.
 
+### All clients
+
+This view lists the wifi clients and the wired (LAN) clients together, with their status: a wifi client is online when an AP reported it within the previous 30 seconds, a wired client when it was seen in a forwarding table within the previous 10 minutes. It shows where each client is, the AP, SSID and band for wifi, the device and port for wired, and when it was last seen (local time).
+
 ### Home Assistant integration
 
 OpenSOHO monitoring can be integrated with Home Assistant. [(More info)](https://opensoho.github.io/docs/home-assistant/)
